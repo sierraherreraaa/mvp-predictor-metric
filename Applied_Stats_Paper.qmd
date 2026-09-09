@@ -1,0 +1,280 @@
+---
+title: "Applied Stats Paper"
+author: "Sierra Herrera"
+format:
+  pdf: default
+fontsize: 11pt
+---
+
+The NBA is a professional basketball league that contains 32 teams that compete in an 82 game regular season. While the league gives out several prestigious awards like Rookie of the Year, Clutch Player of the Year, Defensive Player of the Year, etc,; one the leagues greatest honors is the award for Most Valuable Player (MVP), which is given to the player who was deemed to have the greatest over impact based on performance, team success and media voting. 
+
+The main statistics used in this analysis are as follows:
+
+- Points per game: the average number of points a player scores per game
+
+- Assists: the average number of passes that lead to a teammate's basket per game
+
+- Total Rebounds: the average number of rebounds per game, including both offensive and defensive
+
+- True Shooting Percentage: a measure of scoring efficiency that accounts for field goals, three points shots and free throws
+
+- Value Over Replacement Player (VORP): an advanced statistic used to estimate a player's overall contribution and on-court value
+
+- Blocks: the average number of opponent shot attempts a player blocks per game
+
+- Steals: the average number of times a player manages to take the ball away from an opponent per game
+
+The NBA MVP award is widely accepted as one of the highest individual honors in professional basketball, but it's important to acknowledge that its selection process is inherently subjective. Unlike the Golden Boot in professional soccer or the Brownlow Medal in the Australian Football League, which are awards based purely on statistics, the MVP award is determined by around 100 various sportswriters and broadcasters, meaning that their votes are influenced not only by measurable performance but by a player's overall narrative. 
+
+A commonly mentioned phenomenon among NBA fans and even analysts is voter fatigue, which is used to describe the tendency for voters to avoid awarding the same player consequtive MVPs. While voter fatigue has no official role in the voting criteria, it is widely believed to influence outcomes with many fans and analysts arguing that all-time great players, such as Michael Jordan, have lost out on MVP awards despite providing the best statistical performance. 
+
+In addition to voter fatigue, most MVP winners are commonly selected from teams with strong regular season records. This suggests that team success plays a significant role in the voters perception of the individual player. This creates a bias that players on top performing teams may be favored over more productive players on weaker teams. 
+
+Finally, media narrative, such as a player's storyline or their team leadership may influence the voting decisions. These factors highlight a disconnect between the MVP outcomes and the objective statistical performance. This paper aims to answer: can a constructed statistical metric accurately identify NBA MVP-level players, and how well does it match actual MVP voting or are voters being significantly influenced by subjective considerations? 
+
+All data was collected from [Basketball Reference](https://www.basketball-reference.com/), a widely used source for NBA statistics. This dataset consists of player level season averages where each row represents a single player's performance during a single NBA regular season. This analysis looks at the past 11 seasons for a sufficient sample size. It is important to note that the MVP voting occurs before the postseason begins, because of this, all post season performance was excluded from this analysis. This is further supported by Kirschner, a former MVP voter, at the [The New York Times](https://www.nytimes.com/athletic/4329792/2023/03/21/nba-mvp-voter-list-award/) who states, "what happens in the playoffs is totally meaningless and irrelevant" in the MVP voting process. 
+
+For each player in each season, both traditional and advanced statistics were collected. The traditional statistics include points per game(PTS), assists(AST), total rebounds(TRB), steals(STL) and blocks(BLK). Additionally, advanced statistics such as True Shooting Percentage (TS%) and Value Over Replacement Player (VORP) were included. Combined, these variables represent the key aspects of offensive production, playmaking, and defensive skill. 
+
+The dataset was created by downloading separate per-game and advanced statistics tables for each season and merging them by player name and season. In cases where players were traded mid-seasons, the "total" (TOT) row was used to represent their full season performance. 
+
+### Clean and organize data
+```{python}
+# Read in and Merge Data
+
+import pandas as pd
+
+seasons = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+
+all_seasons = []
+
+for season in seasons:
+  #get file name for each season
+  per_game_file = f"data/per_game_{season}.csv"
+  advanced_file = f"data/advanced_{season}.csv"
+
+  #load in files
+  per_game = pd.read_csv(per_game_file)
+  advanced = pd.read_csv(advanced_file)
+
+  #clean header rows
+  per_game = per_game[per_game["Rk"] != "Rk"].copy()
+  advanced = advanced[advanced["Rk"] != "Rk"].copy()
+
+  #clean players who were traded
+  per_game = per_game[(per_game["Team"] =="TOT") | (~per_game["Player"].duplicated(keep=False))].copy()
+  advanced = advanced[(advanced["Team"] =="TOT") | (~advanced["Player"].duplicated(keep=False))].copy()
+
+  #create season column
+  per_game["Season"] = season
+  advanced["Season"] = season
+
+  #columns to keep, keeping extra columns to allow flexibility while creating formula
+  advanced_keep = advanced[["Player", "Season", "TS%", "PER", "BPM", "VORP", "WS"]].copy()
+
+  #merge data
+  merged_nba = pd.merge(
+    per_game,
+    advanced_keep,
+    on = ["Player", "Season"],
+    how = "inner"
+  )
+
+  all_seasons.append(merged_nba)
+
+#combine seasons in dataset
+combined_nba = pd.concat(all_seasons, ignore_index = True)
+
+final_nba = combined_nba[["Player", "Season", "Age", "Team", "G", "PTS", "AST", "TRB", "STL", "BLK", "FGA", "FTA", "TS%", "VORP"]]
+```
+
+In any NBA analysis, there are limitations in the data. The first being that certain aspects of a player's performance such as leadership, team context, and off-ball defense are not captured by box score statistics; so while they are potentially relevant, the NBA currently has no way of quantitatively measuring them. Secondly, advanced statistical metrics, such as VORP, are model based estimates meaning that they may not perfectly reflect a player's true value. 
+
+To evaluate player performance, a MVP metric was created using a weighted combination of several statistics. This approach was used to allow for the integration of scoring, playmaking, defensive contributions and efficiency into a single quantitative measure. The variables used include points per game, assists, total rebounds, true shooting percentage, VORP, and a defensive metric that combines steals and blocks. Because these statistics are all measured on different scales each variable was standardized within each season using z-scores. Z-scores are important for explaining how far above or below the average a player is. To calculate a z-score, we use the following formula: $$Z = \frac{X - \mu}{\sigma} $$
+
+X = player's stat for the respective season
+
+$\mu$ = league  average of that stat for the respective season
+
+$\sigma$ = standard deviation of that stat for the respective season
+
+This works because $X - \mu$ tells how far from the average a player is and dividing by the standard deviation, or $\sigma$ allows for a proper scale.
+
+The MVP Score was calculated as a weighted sum of the standardized statistics, with a greater weight placed on scoring and overall impact.
+
+$$MVP Score = 0.30*PTS + 0.20*AST + 0.10*TRB + 0.15*TS + 0.15*VORP + 0.10*DEF$$
+
+The weights associated with each statistic were chosen to reflect the different aspects of player performance while maintaining a balance between offensive and defensive production, efficicency and overall impact. However, it is important to note that the weights themselves are somewhat subjective and are aimed at reflecting the commonly accepted priorities when evaluating player performance. Scoring was given the highest weight (30%) as points per game is the most direct measure or offensive production and is consistently a key factor in MVP voting. Assists were also weighted heavily (20%) to capture a player's ability to generate offense for their teammates. Rebounding was given a smaller weight as getting or maintaining possession is important, it is usually looked at less in MVP evaluation. True shooting percentage (15%) was added to account for scoring efficiency, this checks that players are not being rewarded solely for high volume shooting. Value over replacement player (15%) was included to capture their overall player value that is not typically included in traditional box score statistics. Finally, a defensive component (10%) was added that combined steals and blocks to account for defensive impact, while still understanding that there are limitations to measuring defense. The weighted format was designed to emphasize offensive production while still incorporating their efficiency and defense. 
+
+### Create MVP Score Metric
+```{python}
+#make defense metric
+final_nba["DEF"] = final_nba["STL"] + final_nba["BLK"]
+
+#scale data - used nba_clustering activity as source
+columns = ["PTS", "AST", "TRB", "TS%", "VORP", "DEF"]
+
+for column in columns:
+  final_nba[f"scaled_{column}"] = final_nba.groupby("Season")[column].transform(
+    lambda x: (x - x.mean()) / x.std()
+  )
+
+final_nba["MVP_Score"] = (
+  0.30 * final_nba["scaled_PTS"] +
+  0.15 * final_nba["scaled_AST"] +
+  0.10 * final_nba["scaled_TRB"] +
+  0.15 * final_nba["scaled_TS%"] +
+  0.20 * final_nba["scaled_VORP"] +
+  0.10 * final_nba["scaled_DEF"]
+)
+```
+
+### Find actual MVP
+```{python}
+final_nba["Rank"] = final_nba.groupby("Season")["MVP_Score"].rank(ascending = False)
+
+final_nba[final_nba["Rank"] <= 5 ].sort_values(["Season", "Rank"])
+
+# create indidivual data frames for each season for better output
+for season in final_nba["Season"].unique():
+  print(f"\nSeason {season}")
+  display(
+    final_nba[
+      (final_nba["Season"] == season) &
+      (final_nba["Rank"] <= 5)
+    ][["Rank", "Player", "MVP_Score"]].sort_values("Rank")
+  )
+```
+
+The performance of the created MVP metric was evaluated by comparing the model's top five players each season to the actual top five MVP finalists. On average, the model was able to correctly identify 3.6 of the 5 finalists per season, which shows a good overall performance in capturing MVP level players.
+
+
+### Compare to real results 
+```{python}
+mvp_finalists = {
+  2025: [],
+  2024: ["Shai Gilgeous-Alexander", "Nikola Jokić", "Giannis Antetokounmpo", "Jayson Tatum", "Donovan Mitchell"],
+  2023: ["Nikola Jokić", "Shai Gilgeous-Alexander", "Luka Dončić", "Giannis Antetokounmpo", "Jalen Brunson"],
+  2022: ["Joel Embiid", "Nikola Jokić", "Giannis Antetokounmpo", "Jayson Tatum", "Shai Gilgeous-Alexander"],
+  2021: ["Nikola Jokić", "Joel Embiid", "Giannis Antetokounmpo", "Devin Booker", "Luka Dončić"],
+  2020: ["Nikola Jokić", "Joel Embiid", "Stephen Curry", "Giannis Antetokounmpo", "Chris Paul"],
+  2019: ["Giannis Antetokounmpo", "LeBron James", "James Harden", "Luka Dončić", "Kawhi Leonard"],
+  2018: ["Giannis Antetokounmpo", "James Harden", "Paul George", "Nikola Jokić", "Stephen Curry"],
+  2017: ["James Harden", "LeBron James", "Anthony Davis", "Damian Lillard", "Russell Westbrook"],
+  2016: ["Russell Westbrook", "James Harden", "Kawhi Leonard", "LeBron James", "Isaiah Thomas"],
+  2015: ["Stephen Curry", "Kawhi Leonard", "LeBron James", "Russell Westbrook", "Kevin Durant"]
+}
+
+#compare results to actual finalists
+results = []
+
+for season, real_top5 in mvp_finalists.items():
+  #skip 25-26 season as there are not results yet
+  if season == 2025:
+    continue
+
+  model_top5 = set(
+    final_nba[
+      (final_nba["Season"] == season) &
+      (final_nba["Rank"] <= 5)
+    ]["Player"]
+  )
+
+  real_top5 = set(real_top5)
+  overlap = len(model_top5 & real_top5)
+
+  results.append({
+    "Season" : season,
+    "Model_Top5": list(model_top5),
+    "Actual_Top5" : list(real_top5),
+    "Overlap" : overlap,
+    "Accuracy" : overlap/5
+  })
+
+results_df = pd.DataFrame(results).sort_values("Season")
+results_df["Overlap"].mean()
+```
+
+In addition to identifying the top 5 candidates, the model was able to correctly predict the MVP winner in 50% of the seasons analyzed. This shows that while the model is effective at recognizing the top performers, it is less reliable at distinguishing between closely ranked candidates. 
+
+### Check against actual winner
+```{python}
+# Check for predicted winners
+actual_mvp_winners = {
+  2024: "Shai Gilgeous-Alexander",
+  2023: "Nikola Jokić",
+  2022: "Joel Embiid",
+  2021: "Nikola Jokić",    
+  2020: "Nikola Jokić",
+  2019: "Giannis Antetokounmpo",
+  2018: "Giannis Antetokounmpo",
+  2017: "James Harden",
+  2016: "Russell Westbrook",
+  2015: "Stephen Curry"
+}
+
+winner_results = []
+
+for season, actual_winner in actual_mvp_winners.items():
+  predicted_winner = final_nba[(final_nba["Season"] == season) & (final_nba["Rank"] == 1)]["Player"].iloc[0]
+
+  winner_results.append({
+    "Season": season,
+    "Predicted_Winner": predicted_winner,
+    "Actual_Winner": actual_winner,
+    "Correct": predicted_winner == actual_winner
+  })
+
+winner_results_df = pd.DataFrame(winner_results).sort_values("Season")
+winner_results_df
+
+winner_results_df["Correct"].mean()
+```
+
+Additionally, the actual MVP winner appeared within the model's top two ranked players in 90% of the seasons analyzed. This demonstrates that the model is able to consistently identify the eventual award winner in the top performers for the year. While the metric may not always select the exact winner, the model is capable of narrowing down the MVP field significantly.
+
+### Comparing against top 2 finalists
+```{python}
+#Check if predicted winner was in top 2
+actual_top2 = {
+  2024: ["Shai Gilgeous-Alexander", "Nikola Jokić"],
+  2023: ["Nikola Jokić", "Shai Gilgeous-Alexander"],
+  2022: ["Joel Embiid", "Nikola Jokić"],
+  2021: ["Nikola Jokić", "Joel Embiid"],
+  2020: ["Nikola Jokić", "Joel Embiid"],
+  2019: ["Giannis Antetokounmpo", "LeBron James"],
+  2018: ["Giannis Antetokounmpo", "James Harden"],
+  2017: ["James Harden", "LeBron James"],
+  2016: ["Russell Westbrook", "James Harden"],
+  2015: ["Stephen Curry", "Kawhi Leonard"]
+}
+
+top2_results = []
+
+for season, real_top2 in actual_top2.items():
+  predicted_winner = final_nba[(final_nba["Season"] == season) & (final_nba["Rank"] == 1)]["Player"].iloc[0]
+
+  top2_results.append({
+    "Season": season,
+    "Predicted_Winner": predicted_winner,
+    "Actual_Top2": real_top2,
+    "In_Actual_Top2": predicted_winner in real_top2
+  })
+
+top2_results_df = pd.DataFrame(top2_results).sort_values("Season")
+top2_results_df
+
+top2_results_df["In_Actual_Top2"].mean()
+```
+
+Overall, these various results suggest that the variable used and the weights assumed are able to account for many of the key statistical factors associated with MVP voting. However, the percentage of inaccuracies is able to highlight the influence of non-statistical factors discussed earlier, such as voter fatigue, team success and player narrative. 
+
+In addition to evaluating past seasons, the model was applied to the current 2025-2026 season to predict the MVP award winner. Because MVP voting results are not available yet, this season was excluded from accuracy calculations. Based on the constructed MVP score and the top ranked players for the current season are Nikola Jokić, Luka Dončić and Shai Gilgeous-Alexander. These players represent the strongest candidates for the MVP award based on their offensive output, efficiency, and impact. 
+
+This study set out to evaluate whether a truly quantitative model could effectively identify NBA MVP-level players using a weighted combination of various performance metrics. By incorporating metrics that look at scoring, playmaking, impact, and defense, the constructed MVP metric is able to capture the key elements that influence MVP voting. 
+
+The results show that the model is very effective at identifying high level players, it correctly matched an average of 3.6 out of 5 MVP finalists per season. Additionally, the model was able to successfully predict the MVP winner in 50% of the seasons analyzed and was able to put the eventual winner within its top two ranking 90% of the time. This suggests that statistical performance does play a major role in MVP selection. 
+
+However, it is important to note that the model did not perfectly replicate the MVP voting outcomes which highlight the influence of subjective factors that can't be captured by statistical data. Factors such as voter fatigue, team success, and player narrative likely contribute to the model's discrepancies compared to actual MVP results. This reinforces the idea that while statistical metrics can provide valuable insight into a player's performance, it cannot fully account for the human element involved in the MVP voting process. 
+
+There are several places for imporvement in a future project. First off, the analysis could be expanded to use more seasons and potentially going back through entire history of the NBA to create a more comprehensive evaluation. Secondly, there are additional variables to look at such as team record or player efficiency ratings (PER) that could be incorporated to enhance the model and capture a player's value more accurately. Furthermore, a more complex method, like machine leaerning techniques, could be used to improve the weighting system. Finally, future research could discover the model's abilities to forecast MVP winners or top candidates for upcoming sesasons based on prior performance data.
